@@ -40,9 +40,9 @@ func (f *fsHandler) Run(stopCh <-chan struct{}) {
 	if err != nil {
 		log.Fatalf("unable to create new watcher: %v", err)
 	}
-	f.isStarted = true
 	go f.runFileSystemRelist(stopCh)
 	go f.runFileSystemWatch(stopCh)
+	f.isStarted = true
 }
 
 func (f *fsHandler) HasSynced() bool {
