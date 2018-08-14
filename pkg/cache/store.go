@@ -1,8 +1,10 @@
-package informer
+package cache
 
 import (
 	"fmt"
 	"sync"
+
+	"github.com/mfojtik/fsinformer/pkg/types"
 )
 
 type Store interface {
@@ -31,7 +33,7 @@ func NewStore() Store {
 }
 
 func (c *syncMapStore) Add(obj interface{}) error {
-	f, ok := obj.(File)
+	f, ok := obj.(types.File)
 	if !ok {
 		return fmt.Errorf("%#+v is not a file", obj)
 	}
@@ -58,7 +60,7 @@ func (c *syncMapStore) Delete(obj interface{}) error {
 	if !exists {
 		return fmt.Errorf("%#+v does not exists", obj)
 	}
-	c.store.Delete(obj.(File).Name())
+	c.store.Delete(obj.(types.File).Name())
 	return nil
 }
 
@@ -81,7 +83,7 @@ func (c *syncMapStore) ListKeys() []string {
 }
 
 func (c *syncMapStore) Get(obj interface{}) (interface{}, bool, error) {
-	f, ok := obj.(File)
+	f, ok := obj.(types.File)
 	if !ok {
 		return nil, false, fmt.Errorf("%#+v is not a file", obj)
 	}

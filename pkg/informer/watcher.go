@@ -7,11 +7,13 @@ import (
 	"time"
 
 	"github.com/fsnotify/fsnotify"
+	"github.com/mfojtik/fsinformer/pkg/cache"
+	"github.com/mfojtik/fsinformer/pkg/types"
 )
 
 type fsHandler struct {
-	handlerFuncs []FileEventHandler
-	store        Store
+	handlerFuncs []types.FileEventHandler
+	store        cache.Store
 
 	// mutex is needed to avoid race between relist and watcher
 	mutex sync.Mutex
@@ -25,7 +27,7 @@ type fsHandler struct {
 	isStarted bool
 }
 
-func (f *fsHandler) AddEventHandler(handler FileEventHandlerFuncs) {
+func (f *fsHandler) AddEventHandler(handler types.FileEventHandlerFuncs) {
 	if f.isStarted {
 		panic("cannot add handler funcs when started")
 	}
@@ -70,7 +72,7 @@ func (f *fsHandler) relist() {
 	// Refresh the store from on-disk to match the reality
 	// In case a path was specified to non-existing file, this will check if the file exists now
 	// and register it into filesystem watcher (and run OnAdd() handlers).
-	postAddFunc := func(item File) error {
+	postAddFunc := func(item types.File) error {
 		if err := f.watcher.Add(item.Name()); err != nil {
 			return err
 		}
@@ -83,7 +85,7 @@ func (f *fsHandler) relist() {
 	// Relist the store periodically and execute the OnAdd() handlers for all items periodically.
 	var wg sync.WaitGroup
 	for _, item := range f.store.List() {
-		obj, err := NewFile(item.(File).Name())
+		obj, err := types.NewFile(item.(types.File).Name())
 		if err != nil {
 			log.Printf("error creating file: %v", err)
 		}
@@ -102,7 +104,7 @@ func (f *fsHandler) runFileSystemWatch(stopCh <-chan struct{}) {
 		select {
 		case event := <-f.watcher.Events:
 			f.mutex.Lock()
-			item, err := NewFile(event.Name)
+			item, err := types.NewFile(event.Name)
 			if os.IsNotExist(err) {
 				obj, exists, err := f.store.GetByKey(event.Name)
 				if err != nil {
@@ -113,7 +115,7 @@ func (f *fsHandler) runFileSystemWatch(stopCh <-chan struct{}) {
 					log.Printf("file %q does not exist in store", event.Name)
 					continue
 				}
-				item = obj.(File)
+				item = obj.(types.File)
 			} else if err != nil {
 				log.Printf("error gathering file information: %v", err)
 				continue
@@ -136,7 +138,7 @@ func (f *fsHandler) runFileSystemWatch(stopCh <-chan struct{}) {
 	}
 }
 
-func (f *fsHandler) handleCreate(item File) {
+func (f *fsHandler) handleCreate(item types.File) {
 	if err := f.store.Add(item); err != nil {
 		log.Printf("error adding %#+v to store: %v", item, err)
 		return
@@ -146,7 +148,7 @@ func (f *fsHandler) handleCreate(item File) {
 	}
 }
 
-func (f *fsHandler) handleWrite(item File) {
+func (f *fsHandler) handleWrite(item types.File) {
 	oldItem, exists, err := f.store.Get(item)
 	if err != nil {
 		log.Printf("unable to get item from store: %v", err)
@@ -157,7 +159,7 @@ func (f *fsHandler) handleWrite(item File) {
 	}
 	// No content update (in some cases, the Update() is registered when the FS first create
 	// the empty file and then writes the content to it. It might be specific to OSX...
-	if oldItem.(File).ContentSum256() == item.ContentSum256() {
+	if oldItem.(types.File).ContentSum256() == item.ContentSum256() {
 		return
 	}
 	if err := f.store.Update(item); err != nil {
@@ -169,7 +171,7 @@ func (f *fsHandler) handleWrite(item File) {
 	}
 }
 
-func (f *fsHandler) handleDelete(item File) {
+func (f *fsHandler) handleDelete(item types.File) {
 	if err := f.store.Delete(item); err != nil {
 		log.Printf("error adding %#+v to store: %v", item, err)
 		return

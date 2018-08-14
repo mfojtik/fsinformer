@@ -1,9 +1,14 @@
 package informer
 
-import "time"
+import (
+	"time"
 
-func NewFileInformer(resyncPeriod time.Duration, paths ...string) (FileInformer, error) {
-	store := NewStore()
+	"github.com/mfojtik/fsinformer/pkg/cache"
+	"github.com/mfojtik/fsinformer/pkg/types"
+)
+
+func NewFileInformer(resyncPeriod time.Duration, paths ...string) (types.FileInformer, error) {
+	store := cache.NewStore()
 	if err := AddFiles(store, nil, paths...); err != nil {
 		return nil, err
 	}

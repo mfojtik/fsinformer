@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/mfojtik/fsinformer/pkg/informer"
+	"github.com/mfojtik/fsinformer/pkg/types"
 )
 
 func setup() []string {
@@ -32,24 +33,24 @@ func main() {
 	}
 
 	// Register handlers:
-	i.AddEventHandler(informer.FileEventHandlerFuncs{
+	i.AddEventHandler(types.FileEventHandlerFuncs{
 		// AddFunc is called when the file is added to the store (observed).
 		// AddFunc is also called when the resync happens (every 3 seconds in this example)
 		AddFunc: func(item interface{}) {
-			f := item.(informer.File)
+			f := item.(types.File)
 			log.Printf("OnAdd called for %q (content: %s)", f.Name(), string(f.Content()))
 		},
 		// UpdateFunc is called when the file content change on disk.
 		// The first argument represents old (stored) version of the file, second argument is updated file.
 		UpdateFunc: func(oldItem, newItem interface{}) {
-			newFile := newItem.(informer.File)
-			oldFile := oldItem.(informer.File)
+			newFile := newItem.(types.File)
+			oldFile := oldItem.(types.File)
 			log.Printf("OnUpdate called for %q (old content: %s, new content: %s)", newFile.Name(),
 				string(oldFile.Content()), string(newFile.Content()))
 		},
 		// DeleteFunc is called when the file was removed from the filesystem.
 		DeleteFunc: func(item interface{}) {
-			deletedFile := item.(informer.File)
+			deletedFile := item.(types.File)
 			log.Printf("OnDelete called for %q", deletedFile.Name())
 		},
 	})

@@ -6,13 +6,15 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/mfojtik/fsinformer/pkg/types"
 )
 
 func TestInformerIsDirectory(t *testing.T) {
 	baseDir, _ := ioutil.TempDir("", "test")
 	defer os.RemoveAll(baseDir)
 	_, err := NewFileInformer(4*time.Second, baseDir)
-	if err != ErrIsDirectory {
+	if err != types.ErrIsDirectory {
 		t.Fatalf("unexpected error: %v (expected ErrIsDirectory)", err)
 	}
 }
@@ -36,9 +38,9 @@ func TestInformerBasic(t *testing.T) {
 		isTestFooUpdated  = make(chan struct{})
 	)
 
-	informer.AddEventHandler(FileEventHandlerFuncs{
+	informer.AddEventHandler(types.FileEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
-			f := obj.(File)
+			f := obj.(types.File)
 			defer close(isTestFooObserved)
 			if f.Name() != fooFilePath {
 				t.Errorf("expected 'test_foo', got: %v", f.Name())
@@ -51,8 +53,8 @@ func TestInformerBasic(t *testing.T) {
 			}
 		},
 		UpdateFunc: func(old, obj interface{}) {
-			f := obj.(File)
-			oldFile := old.(File)
+			f := obj.(types.File)
+			oldFile := old.(types.File)
 			defer close(isTestFooUpdated)
 			if f.Name() != fooFilePath {
 				t.Errorf("expected 'test_foo', got: %v", f.Name())
@@ -68,7 +70,7 @@ func TestInformerBasic(t *testing.T) {
 			}
 		},
 		DeleteFunc: func(obj interface{}) {
-			f := obj.(File)
+			f := obj.(types.File)
 			defer close(isTestFooDeleted)
 			if f.Name() != fooFilePath {
 				t.Errorf("expected 'test_foo', got: %v", f.Name())

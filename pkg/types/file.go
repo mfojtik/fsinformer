@@ -1,4 +1,4 @@
-package informer
+package types
 
 import (
 	"crypto/sha256"

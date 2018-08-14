@@ -1,4 +1,4 @@
-package informer
+package types
 
 type FileEventHandler interface {
 	OnAdd(obj interface{})

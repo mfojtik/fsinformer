@@ -1,13 +1,36 @@
-package informer
+package cache
 
 import (
+	"os"
 	"reflect"
 	"sync"
 	"testing"
+
+	"github.com/mfojtik/fsinformer/pkg/types"
 )
 
-func mockFile() File {
-	return &localFile{name: "/tmp/foo"}
+type testFile struct {
+	name string
+}
+
+func (f *testFile) Name() string {
+	return f.name
+}
+
+func (f *testFile) Stat() os.FileInfo {
+	panic("implement me")
+}
+
+func (f *testFile) Content() []byte {
+	panic("implement me")
+}
+
+func (f *testFile) ContentSum256() string {
+	panic("implement me")
+}
+
+func mockFile() types.File {
+	return &testFile{name: "/tmp/foo"}
 }
 
 func Test_syncMapStore_Add(t *testing.T) {
@@ -188,7 +211,6 @@ func Test_syncMapStore_List(t *testing.T) {
 func Test_syncMapStore_ListKeys(t *testing.T) {
 	existingMap := sync.Map{}
 	existingMap.Store("/tmp/foo", mockFile())
-	existingMap.Store("/tmp/bar", mockFile())
 
 	type fields struct {
 		mutex sync.Mutex
@@ -202,7 +224,7 @@ func Test_syncMapStore_ListKeys(t *testing.T) {
 		{
 			name:   "default",
 			fields: fields{store: existingMap},
-			want:   []string{"/tmp/foo", "/tmp/bar"},
+			want:   []string{"/tmp/foo"},
 		},
 		{
 			name:   "empty",
@@ -225,8 +247,7 @@ func Test_syncMapStore_ListKeys(t *testing.T) {
 func Test_syncMapStore_Get(t *testing.T) {
 	existingMap := sync.Map{}
 	item := mockFile()
-	item2 := mockFile()
-	item2.(*localFile).name = "bar"
+	item2 := &testFile{name: "/tmp/bar"}
 
 	existingMap.Store("/tmp/foo", item)
 
@@ -371,8 +392,7 @@ func Test_syncMapStore_GetByKey(t *testing.T) {
 func Test_syncMapStore_Replace(t *testing.T) {
 	existingMap := sync.Map{}
 	existingMap.Store("/tmp/foo", mockFile())
-	item2 := mockFile()
-	item2.(*localFile).name = "bar"
+	item2 := &testFile{name: "bar"}
 
 	type fields struct {
 		mutex sync.Mutex
