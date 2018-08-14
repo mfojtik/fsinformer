@@ -19,7 +19,8 @@ type fsHandler struct {
 	// resyncPeriod is the time we should perform list of the path
 	resyncPeriod time.Duration
 
-	baseDir   string
+	watcher *fsnotify.Watcher
+
 	paths     []string
 	isStarted bool
 }
@@ -32,63 +33,89 @@ func (f *fsHandler) AddEventHandler(handler FileEventHandlerFuncs) {
 }
 
 func (f *fsHandler) Run(stopCh <-chan struct{}) {
-	watcher, err := fsnotify.NewWatcher()
+	var err error
+	f.watcher, err = fsnotify.NewWatcher()
 	if err != nil {
 		log.Fatalf("unable to create new watcher: %v", err)
 	}
-	defer watcher.Close()
-	for _, name := range f.paths {
-		if err := watcher.Add(name); err != nil {
-			log.Fatalf("unable to add %s: %v", name, err)
-		}
-	}
 	f.isStarted = true
-	go f.runFileSystemWatch(watcher, stopCh)
+	go f.runFileSystemRelist(stopCh)
+	go f.runFileSystemWatch(stopCh)
 }
 
 func (f *fsHandler) HasSynced() bool {
-	return true
+	return f.isStarted
 }
 
 func (f *fsHandler) runFileSystemRelist(stopCh <-chan struct{}) {
-	// Perform initial list
+	// Perform the initial sweep and register all existing files into watch
 	f.relist()
-	// Update the store periodically from disk
+	// Periodically re-list the on-disk files and store to synchronize the cache to match reality.
 	ticker := time.NewTicker(f.resyncPeriod)
-	go func() {
-		for {
-			select {
-			case <-ticker.C:
-				f.relist()
-			case <-stopCh:
-				ticker.Stop()
-				return
-			}
+	for {
+		select {
+		case <-ticker.C:
+			f.relist()
+		case <-stopCh:
+			ticker.Stop()
+			return
 		}
-	}()
-}
-
-func (f *fsHandler) relist() {
-	for _, item := range f.store.List() {
-		f.mutex.Lock()
-		obj, err := NewFile(f.baseDir, item.(File).Name())
-		if err != nil && err == os.ErrNotExist {
-			go f.handleDelete(obj)
-			continue
-		}
-		go f.handleCreate(obj)
-		f.mutex.Unlock()
 	}
 }
 
-func (f *fsHandler) runFileSystemWatch(watcher *fsnotify.Watcher, stopCh <-chan struct{}) {
+func (f *fsHandler) relist() {
+	f.mutex.Lock()
+	defer f.mutex.Unlock()
+
+	// Refresh the store from on-disk to match the reality
+	// In case a path was specified to non-existing file, this will check if the file exists now
+	// and register it into filesystem watcher (and run OnAdd() handlers).
+	postAddFunc := func(item File) error {
+		if err := f.watcher.Add(item.Name()); err != nil {
+			return err
+		}
+		return nil
+	}
+	if err := AddFiles(f.store, postAddFunc, f.paths...); err != nil {
+		log.Printf("error adding file: %v", err)
+	}
+
+	// Relist the store periodically and execute the OnAdd() handlers for all items periodically.
+	var wg sync.WaitGroup
+	for _, item := range f.store.List() {
+		obj, err := NewFile(item.(File).Name())
+		if err != nil {
+			log.Printf("error creating file: %v", err)
+		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			f.handleCreate(obj)
+		}()
+	}
+	wg.Wait()
+}
+
+func (f *fsHandler) runFileSystemWatch(stopCh <-chan struct{}) {
+	defer f.watcher.Close()
 	for {
 		select {
-		case event := <-watcher.Events:
+		case event := <-f.watcher.Events:
 			f.mutex.Lock()
-			item, err := NewFile(f.baseDir, event.Name)
-			if err != nil {
-				log.Println("error:", err)
+			item, err := NewFile(event.Name)
+			if os.IsNotExist(err) {
+				obj, exists, err := f.store.GetByKey(event.Name)
+				if err != nil {
+					log.Printf("unable to get %q from store: %v", event.Name, err)
+					continue
+				}
+				if !exists {
+					log.Printf("file %q does not exist in store", event.Name)
+					continue
+				}
+				item = obj.(File)
+			} else if err != nil {
+				log.Printf("error gathering file information: %v", err)
 				continue
 			}
 			if event.Op&fsnotify.Create == fsnotify.Create {
@@ -103,7 +130,7 @@ func (f *fsHandler) runFileSystemWatch(watcher *fsnotify.Watcher, stopCh <-chan 
 			f.mutex.Unlock()
 		case <-stopCh:
 			break
-		case err := <-watcher.Errors:
+		case err := <-f.watcher.Errors:
 			log.Println("error:", err)
 		}
 	}
@@ -126,6 +153,11 @@ func (f *fsHandler) handleWrite(item File) {
 	}
 	if !exists {
 		log.Printf("item update called, but does not exists in the store: %v", err)
+		return
+	}
+	// No content update (in some cases, the Update() is registered when the FS first create
+	// the empty file and then writes the content to it. It might be specific to OSX...
+	if oldItem.(File).ContentSum256() == item.ContentSum256() {
 		return
 	}
 	if err := f.store.Update(item); err != nil {
